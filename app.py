@@ -1,7 +1,7 @@
 """SteveFlights — Streamlit UI
 
 Pages:
-  1. Search — run a live search (calls flights.py logic directly)
+  1. Search — run a live search (Google Flights + Kiwi self-transfers)
   2. Results — browse saved snapshots, spot price trends
   3. Settings — edit config.py values and save
 
@@ -16,7 +16,10 @@ from pathlib import Path
 
 import streamlit as st
 
-# ─── page config ─────────────────────────────────────────────
+ROOT = Path(__file__).parent
+RESULTS_DIR = ROOT / "results"
+CONFIG_PATH = ROOT / "config.py"
+
 st.set_page_config(
     page_title="SteveFlights ✈️",
     page_icon="✈️",
@@ -24,18 +27,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-ROOT = Path(__file__).parent
-RESULTS_DIR = ROOT / "results"
-CONFIG_PATH = ROOT / "config.py"
-
-# ─── sidebar nav ─────────────────────────────────────────────
 page = st.sidebar.radio("Navigate", ["🔍 Search", "📊 Results", "⚙️ Settings"],
                         label_visibility="collapsed")
 
 # ─── helpers ─────────────────────────────────────────────────
 
 def read_config() -> dict:
-    """Parse config.py into a dict of values."""
     ns = {}
     exec(CONFIG_PATH.read_text(), ns)
     return {k: v for k, v in ns.items() if not k.startswith("_") and k == k.upper()}
@@ -44,30 +41,20 @@ def read_config() -> dict:
 def load_snapshots() -> list[dict]:
     if not RESULTS_DIR.exists():
         return []
-    snaps = sorted(RESULTS_DIR.glob("20*.json"), reverse=True)
-    results = []
-    for p in snaps:
-        try:
-            results.append(json.loads(p.read_text()))
-        except Exception:
-            pass
-    return results
+    return [
+        json.loads(p.read_text())
+        for p in sorted(RESULTS_DIR.glob("20*.json"), reverse=True)
+        if p.stat().st_size > 10
+    ]
 
 
 def price_trend(snaps: list[dict]) -> list[tuple[str, int]]:
-    return [
-        (s["checked_at"][:16], s["cheapest_total"])
-        for s in reversed(snaps)
-        if "cheapest_total" in s
-    ]
+    return [(s["checked_at"][:16], s["cheapest_total"])
+            for s in reversed(snaps) if "cheapest_total" in s]
 
 
 def fmt_nis(n: int) -> str:
     return f"₪{n:,}"
-
-
-def layover_badge(ok: bool) -> str:
-    return "✅ ok" if ok else "⚠️ long"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -75,37 +62,36 @@ def layover_badge(ok: bool) -> str:
 # ═══════════════════════════════════════════════════════════════
 if page == "🔍 Search":
     st.title("✈️ SteveFlights")
-    st.caption("Cheapest TLV ⇄ Manchester / Liverpool — 3 Weeks 2026")
+    st.caption("TLV ⇄ Manchester / Liverpool · 3 Weeks 2026")
 
     cfg = read_config()
+    has_kiwi = bool(cfg.get("KIWI_API_KEY", "").strip())
 
+    # ── trip summary ──────────────────────────────────────────
     col1, col2 = st.columns([2, 3])
     with col1:
-        st.subheader("Trip summary")
+        st.subheader("Trip")
         st.write(f"**Out:** {', '.join(cfg.get('OUT_DATES', []))}")
         st.write(f"**Stay:** {cfg.get('MIN_NIGHTS')}–{cfg.get('MAX_NIGHTS')} nights "
-                 f"(latest return {cfg.get('MAX_RETURN_DATE')})")
-        st.write(f"**Airports:** TLV → {' or '.join(cfg.get('DESTINATIONS', []))}")
-        st.write(f"**Passengers:** {cfg.get('ADULTS')} adults, {cfg.get('CHILDREN')} children")
+                 f"(latest back {cfg.get('MAX_RETURN_DATE')})")
+        st.write(f"**To/from:** {' or '.join(cfg.get('DESTINATIONS', []))}")
+        st.write(f"**Pax:** {cfg.get('ADULTS')} adults, {cfg.get('CHILDREN')} children")
         st.write(f"**Max stops:** {cfg.get('MAX_STOPS')}")
-        st.write(f"**Layover window:** {cfg.get('MIN_LAYOVER_HOURS')}–{cfg.get('MAX_LAYOVER_HOURS')} hrs")
-        st.write(f"**Deal alert below:** {fmt_nis(cfg.get('PRICE_ALERT_TOTAL', 0))} total "
-                 f"({fmt_nis(cfg.get('PRICE_ALERT_TOTAL', 0) // max(cfg.get('ADULTS', 1), 1))} pp)")
+        st.write(f"**Layover:** {cfg.get('MIN_LAYOVER_HOURS')}–{cfg.get('MAX_LAYOVER_HOURS')} hrs")
+        pp = cfg.get("PRICE_ALERT_TOTAL", 0) // max(cfg.get("ADULTS", 1), 1)
+        st.write(f"**Deal alert:** ≤ {fmt_nis(cfg.get('PRICE_ALERT_TOTAL', 0))} total "
+                 f"({fmt_nis(pp)} pp)")
 
     with col2:
         snaps = load_snapshots()
         if snaps:
             last = snaps[0]
             st.subheader("Last check")
-            st.metric(
-                "Cheapest total (both travellers)",
-                fmt_nis(last["cheapest_total"]),
-                delta=(
-                    fmt_nis(last["cheapest_total"] - snaps[1]["cheapest_total"])
-                    if len(snaps) > 1 else None
-                ),
-                delta_color="inverse",
-            )
+            delta = (last["cheapest_total"] - snaps[1]["cheapest_total"]
+                     if len(snaps) > 1 else None)
+            st.metric("Cheapest (both travellers)", fmt_nis(last["cheapest_total"]),
+                      delta=f"{delta:+,} ₪" if delta is not None else None,
+                      delta_color="inverse")
             st.caption(f"Checked at {last['checked_at']}")
             trend = price_trend(snaps)
             if len(trend) > 1:
@@ -114,121 +100,253 @@ if page == "🔍 Search":
                 st.line_chart(df.set_index("time"), height=160)
 
     st.divider()
-    st.subheader("Run a new search")
-    st.caption("This calls Google Flights live — takes ~30s for all date/airport combos.")
 
-    if st.button("🔍 Search now", type="primary", use_container_width=True):
-        placeholder = st.empty()
-        with placeholder.container():
-            st.info("Searching… (this takes ~30 seconds)")
-        with st.spinner("Querying Google Flights…"):
+    # ── Kiwi setup banner ─────────────────────────────────────
+    if not has_kiwi:
+        st.warning(
+            "**⚠️ Self-transfer flights (like Blue Bird + easyJet to Liverpool) are NOT "
+            "searchable without a Kiwi.com API key.** These are often the cheapest options "
+            "and Skyscanner finds them exactly because it uses Kiwi under the hood.\n\n"
+            "👉 **Get a free key** (2 min): [tequila.kiwi.com](https://tequila.kiwi.com/portal/login) "
+            "→ Sign up → API Keys → copy key → paste in ⚙️ Settings → Kiwi API Key."
+        )
+
+    # ── search buttons ────────────────────────────────────────
+    c1, c2 = st.columns(2)
+    run_google = c1.button("🔍 Google Flights search",
+                           type="primary", use_container_width=True,
+                           help="Single-ticket itineraries only. Free, no key needed.")
+    run_kiwi = c2.button("🔀 Kiwi self-transfer search",
+                         type="primary" if has_kiwi else "secondary",
+                         use_container_width=True,
+                         disabled=not has_kiwi,
+                         help="Virtual interlines (Blue Bird→easyJet etc). Requires Kiwi API key.")
+
+    if run_google:
+        with st.spinner("Querying Google Flights (~30s)…"):
             result = subprocess.run(
                 [sys.executable, str(ROOT / "flights.py"), "--top", "20"],
                 capture_output=True, text=True, cwd=str(ROOT),
             )
-        placeholder.empty()
         if result.returncode == 0:
-            st.success("Done! Switch to the **Results** tab to see the table.")
-            st.text(result.stdout[-3000:] if len(result.stdout) > 3000 else result.stdout)
+            st.success("Done — results saved. Check **📊 Results** tab.")
+            with st.expander("Raw output"):
+                st.text(result.stdout[-3000:] if len(result.stdout) > 3000 else result.stdout)
         else:
-            st.error("Search failed:")
+            st.error("Search failed")
             st.code(result.stderr or result.stdout)
+
+    if run_kiwi and has_kiwi:
+        with st.spinner("Querying Kiwi.com (self-transfers)…"):
+            try:
+                import importlib, config as cfg_mod
+                importlib.reload(cfg_mod)
+                from kiwi import search_kiwi, booking_url
+                trips = search_kiwi(cfg_mod.KIWI_API_KEY)
+            except Exception as e:
+                trips = []
+                st.error(f"Kiwi search error: {e}")
+
+        if not trips:
+            st.info("No Kiwi results — either no flights found or check your API key in Settings.")
+        else:
+            alert = cfg.get("PRICE_ALERT_TOTAL", 99999)
+            st.success(f"Found {len(trips)} Kiwi options. Cheapest: {fmt_nis(trips[0].total)}")
+
+            # Save Kiwi snapshot alongside Google ones.
+            RESULTS_DIR.mkdir(exist_ok=True)
+            stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M")
+            kiwi_path = RESULTS_DIR / f"{stamp}-kiwi.json"
+            kiwi_path.write_text(json.dumps({
+                "source": "kiwi",
+                "checked_at": dt.datetime.now().isoformat(timespec="seconds"),
+                "cheapest_total": trips[0].total,
+                "cheapest_per_person": trips[0].per_person,
+                "trips": [
+                    {
+                        "total": t.total, "per_person": t.per_person, "nights": t.nights,
+                        "has_self_transfer": t.has_self_transfer,
+                        "out_dep": t.out_dep, "back_dep": t.back_dep,
+                        "out_airport": t.out_airport, "back_airport": t.back_airport,
+                        "out_legs": [{"from": l.from_airport, "to": l.to_airport,
+                                      "airlines": l.airlines, "depart": l.depart,
+                                      "arrive": l.arrive,
+                                      "self_transfer": l.is_self_transfer} for l in t.out_legs],
+                        "back_legs": [{"from": l.from_airport, "to": l.to_airport,
+                                       "airlines": l.airlines, "depart": l.depart,
+                                       "arrive": l.arrive,
+                                       "self_transfer": l.is_self_transfer} for l in t.back_legs],
+                        "booking_url": booking_url(t.booking_token),
+                    }
+                    for t in trips[:30]
+                ],
+            }, indent=2))
+
+            for t in trips[:12]:
+                is_deal = t.total <= alert
+                badge = "✨ DEAL " if is_deal else ""
+                self_tx = "🔀 self-transfer" if t.has_self_transfer else "🎫 single ticket"
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([2, 4, 2])
+                    with c1:
+                        st.markdown(f"### {badge}{fmt_nis(t.total)}")
+                        st.caption(f"{fmt_nis(t.per_person)} pp · {t.nights} nights")
+                        st.caption(self_tx)
+                    with c2:
+                        st.markdown("**Outbound**")
+                        for l in t.out_legs:
+                            pfx = "🔀 " if l.is_self_transfer else "✈️ "
+                            st.caption(f"{pfx}{l.from_airport}→{l.to_airport}  "
+                                       f"{l.depart[11:16]}→{l.arrive[11:16]}  "
+                                       f"{', '.join(l.airlines)}")
+                        st.markdown("**Return**")
+                        for l in t.back_legs:
+                            pfx = "🔀 " if l.is_self_transfer else "✈️ "
+                            st.caption(f"{pfx}{l.from_airport}→{l.to_airport}  "
+                                       f"{l.depart[11:16]}→{l.arrive[11:16]}  "
+                                       f"{', '.join(l.airlines)}")
+                    with c3:
+                        url = booking_url(t.booking_token)
+                        st.link_button("Book on Kiwi →", url, use_container_width=True)
 
 
 # ═══════════════════════════════════════════════════════════════
 #  PAGE: RESULTS
 # ═══════════════════════════════════════════════════════════════
 elif page == "📊 Results":
-    st.title("📊 Search Results")
+    st.title("📊 Results")
 
     snaps = load_snapshots()
     if not snaps:
         st.info("No results yet — run a search first.")
         st.stop()
 
-    # snapshot picker
-    labels = [s["checked_at"] for s in snaps]
-    chosen_label = st.selectbox("Snapshot", labels)
-    snap = snaps[labels.index(chosen_label)]
+    # split Google vs Kiwi snapshots
+    google_snaps = [s for s in snaps if s.get("source") != "kiwi"]
+    kiwi_snaps = [s for s in snaps if s.get("source") == "kiwi"]
 
-    trips = snap.get("trips", [])
-    if not trips:
-        st.warning("No trips in this snapshot.")
-        st.stop()
+    tab1, tab2 = st.tabs(["Google Flights", "Kiwi (self-transfers)"])
 
-    st.caption(
-        f"Cheapest total: **{fmt_nis(snap['cheapest_total'])}** "
-        f"({fmt_nis(snap['cheapest_per_person'])} pp)"
-    )
+    # ── Google tab ────────────────────────────────────────────
+    with tab1:
+        if not google_snaps:
+            st.info("No Google Flights results yet.")
+        else:
+            labels = [s["checked_at"] for s in google_snaps]
+            chosen = st.selectbox("Snapshot", labels, key="g_snap")
+            snap = google_snaps[labels.index(chosen)]
+            trips = snap.get("trips", [])
 
-    # optional filter
-    with st.expander("Filter options"):
-        max_price = st.slider(
-            "Max total price (₪)",
-            min_value=0, max_value=20000,
-            value=min(20000, trips[-1]["total"]),
-            step=250,
-        )
-        only_ok = st.checkbox("Only show trips where BOTH legs have 2–6h layover")
+            st.caption(f"Cheapest: **{fmt_nis(snap['cheapest_total'])}** "
+                       f"({fmt_nis(snap['cheapest_per_person'])} pp)")
 
-    # render trips
-    cfg = read_config()
-    alert_threshold = cfg.get("PRICE_ALERT_TOTAL", 0)
+            cfg = read_config()
+            alert = cfg.get("PRICE_ALERT_TOTAL", 0)
 
-    shown = 0
-    for t in trips:
-        if t["total"] > max_price:
-            continue
-        o = t["out_leg"]
-        b = t["back_leg"]
-        out_ok = o.get("layover_ok", True)
-        back_ok = b.get("layover_ok", True)
-        trip_ok = out_ok and back_ok
-        if only_ok and not trip_ok:
-            continue
+            with st.expander("Filter"):
+                max_price = st.slider("Max total (₪)", 0, 30000,
+                                      min(30000, max(t["total"] for t in trips)),
+                                      step=250, key="g_price")
+                only_ok = st.checkbox("Only 2–6h layovers on both legs", key="g_ok")
 
-        is_deal = t["total"] <= alert_threshold and trip_ok
-        bg = "rgba(255,215,0,0.12)" if is_deal else "rgba(255,77,77,0.06)" if not trip_ok else ""
-        label = "✨ DEAL" if is_deal else ("⚠️ long layover" if not trip_ok else "")
+            shown = 0
+            for t in trips:
+                if t["total"] > max_price:
+                    continue
+                o, b = t["out_leg"], t["back_leg"]
+                out_ok = o.get("layover_ok", True)
+                back_ok = b.get("layover_ok", True)
+                if only_ok and not (out_ok and back_ok):
+                    continue
+                trip_ok = out_ok and back_ok
+                is_deal = t["total"] <= alert and trip_ok
+                with st.container(border=True):
+                    c1, c2, c3, c4 = st.columns([2, 2, 1, 2])
+                    with c1:
+                        st.markdown(f"### {fmt_nis(t['total'])}")
+                        st.caption(f"{fmt_nis(t['per_person'])} pp · {t['nights']} nights")
+                    with c2:
+                        st.markdown(f"**TLV → {o['to_airport']}**  {o['date']}  {o['depart']}")
+                        st.markdown(f"**{b['from_airport']} → TLV**  {b['date']}  {b['depart']}")
+                    with c3:
+                        st.write("✅" if out_ok else "⚠️", "out")
+                        st.write("✅" if back_ok else "⚠️", "back")
+                    with c4:
+                        if is_deal:
+                            st.markdown("**✨ DEAL**")
+                        st.caption(f"Out: {o['airlines']}  "
+                                   f"{('via ' + o['layover']) if o.get('layover') else 'nonstop'}")
+                        st.caption(f"Back: {b['airlines']}  "
+                                   f"{('via ' + b['layover']) if b.get('layover') else 'nonstop'}")
+                shown += 1
 
-        with st.container(border=True):
-            c1, c2, c3, c4 = st.columns([2, 2, 1, 2])
-            with c1:
-                st.markdown(f"### {fmt_nis(t['total'])}")
-                st.caption(f"{fmt_nis(t['per_person'])} pp · {t['nights']} nights")
-            with c2:
-                st.markdown(f"**{o['from_airport']} → {o['to_airport']}**  "
-                            f"{o['date']}  {o['depart']}")
-                st.markdown(f"**{b['from_airport']} → {b['to_airport']}**  "
-                            f"{b['date']}  {b['depart']}")
-            with c3:
-                st.markdown(f"{'✅' if out_ok else '⚠️'} out")
-                st.markdown(f"{'✅' if back_ok else '⚠️'} back")
-            with c4:
-                if label:
-                    st.markdown(f"**{label}**")
-                st.caption(
-                    f"Out: {o['airlines']}  "
-                    f"{('via ' + o['layover']) if o.get('layover') else 'nonstop'}"
-                )
-                st.caption(
-                    f"Back: {b['airlines']}  "
-                    f"{('via ' + b['layover']) if b.get('layover') else 'nonstop'}"
-                )
-        shown += 1
+            if shown == 0:
+                st.info("No trips match the current filter.")
 
-    if shown == 0:
-        st.info("No trips match the current filter.")
+            # price history
+            trend = price_trend(google_snaps)
+            if len(trend) > 1:
+                st.divider()
+                st.subheader("Price history")
+                import pandas as pd
+                df = pd.DataFrame(trend, columns=["time", "₪ total"])
+                st.line_chart(df.set_index("time"), height=200)
 
-    # price history chart
-    all_snaps = load_snapshots()
-    trend = price_trend(all_snaps)
-    if len(trend) > 1:
-        st.divider()
-        st.subheader("Price history")
-        import pandas as pd
-        df = pd.DataFrame(trend, columns=["time", "₪ total"])
-        st.line_chart(df.set_index("time"), height=220)
+    # ── Kiwi tab ─────────────────────────────────────────────
+    with tab2:
+        if not kiwi_snaps:
+            st.info("No Kiwi results yet. Add your API key in Settings, then search.")
+        else:
+            labels = [s["checked_at"] for s in kiwi_snaps]
+            chosen = st.selectbox("Snapshot", labels, key="k_snap")
+            snap = kiwi_snaps[labels.index(chosen)]
+            trips = snap.get("trips", [])
+
+            st.caption(f"Cheapest: **{fmt_nis(snap['cheapest_total'])}** "
+                       f"({fmt_nis(snap['cheapest_per_person'])} pp)")
+
+            cfg = read_config()
+            alert = cfg.get("PRICE_ALERT_TOTAL", 0)
+
+            with st.expander("Filter"):
+                max_price = st.slider("Max total (₪)", 0, 30000,
+                                      min(30000, max(t["total"] for t in trips)),
+                                      step=250, key="k_price")
+                only_self = st.checkbox("Only show self-transfer itineraries", key="k_self")
+
+            from kiwi import booking_url
+            for t in trips:
+                if t["total"] > max_price:
+                    continue
+                if only_self and not t.get("has_self_transfer"):
+                    continue
+                is_deal = t["total"] <= alert
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([2, 4, 2])
+                    with c1:
+                        st.markdown(f"### {fmt_nis(t['total'])}")
+                        st.caption(f"{fmt_nis(t['per_person'])} pp · {t['nights']} nights")
+                        if t.get("has_self_transfer"):
+                            st.caption("🔀 self-transfer")
+                        if is_deal:
+                            st.markdown("**✨ DEAL**")
+                    with c2:
+                        st.markdown("**Outbound**")
+                        for l in t.get("out_legs", []):
+                            pfx = "🔀 " if l.get("self_transfer") else "✈️ "
+                            st.caption(f"{pfx}{l['from']}→{l['to']}  "
+                                       f"{l['depart'][11:16]}  "
+                                       f"{', '.join(l['airlines'])}")
+                        st.markdown("**Return**")
+                        for l in t.get("back_legs", []):
+                            pfx = "🔀 " if l.get("self_transfer") else "✈️ "
+                            st.caption(f"{pfx}{l['from']}→{l['to']}  "
+                                       f"{l['depart'][11:16]}  "
+                                       f"{', '.join(l['airlines'])}")
+                    with c3:
+                        st.link_button("Book on Kiwi →",
+                                       t.get("booking_url", "https://kiwi.com"),
+                                       use_container_width=True)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -270,7 +388,7 @@ elif page == "⚙️ Settings":
         max_stops = st.number_input("Max stops", 0, 2, int(cfg.get("MAX_STOPS", 1)))
         c1, c2 = st.columns(2)
         min_layover = c1.number_input(
-            "Min layover (hours)", 0.5, 6.0, float(cfg.get("MIN_LAYOVER_HOURS", 2.0)), step=0.5
+            "Min layover (hours)", 0.5, 12.0, float(cfg.get("MIN_LAYOVER_HOURS", 2.0)), step=0.5
         )
         max_layover = c2.number_input(
             "Max layover (hours)", 1.0, 24.0, float(cfg.get("MAX_LAYOVER_HOURS", 6.0)), step=0.5
@@ -282,15 +400,22 @@ elif page == "⚙️ Settings":
                                     cfg.get("CURRENCY", "ILS")))
         alert = st.number_input(
             "Flag as ✨ DEAL if total ≤ this amount",
-            min_value=0, max_value=100000,
-            value=int(cfg.get("PRICE_ALERT_TOTAL", 6400)),
-            step=100,
+            min_value=0, max_value=200000, value=int(cfg.get("PRICE_ALERT_TOTAL", 6400)), step=100,
         )
         delay = st.number_input(
-            "Delay between queries (seconds)",
+            "Delay between Google queries (seconds)",
             min_value=0.5, max_value=10.0,
-            value=float(cfg.get("REQUEST_DELAY_SECONDS", 1.5)),
-            step=0.5,
+            value=float(cfg.get("REQUEST_DELAY_SECONDS", 1.5)), step=0.5,
+        )
+
+        st.subheader("Kiwi.com API (for self-transfer flights)")
+        st.caption(
+            "Get a free key at [tequila.kiwi.com](https://tequila.kiwi.com/portal/login). "
+            "Without this, Liverpool self-transfer routes (Blue Bird + easyJet) won't be found."
+        )
+        kiwi_key = st.text_input(
+            "Kiwi API key", value=cfg.get("KIWI_API_KEY", ""),
+            type="password", placeholder="paste key here",
         )
 
         submitted = st.form_submit_button("💾 Save settings", type="primary")
@@ -298,41 +423,32 @@ elif page == "⚙️ Settings":
     if submitted:
         out_dates = [d.strip() for d in raw_out.split(",") if d.strip()]
         new_cfg = f'''# ─── Trip configuration ──────────────────────────────────────
-# Edit this file to change what the flight finder searches for.
-# All prices come back in the currency below (ILS = Israeli Shekel).
+ORIGIN = "TLV"
 
-ORIGIN = "TLV"                      # always fly out of / back to Tel Aviv
-
-# UK airports to consider, at EITHER end of the trip (mix and match allowed).
-# LPL = Liverpool (usually cheaper), MAN = Manchester (more flights).
 DESTINATIONS = {destinations!r}
 
-# Outbound dates to try (Israel -> UK). Add a day either side for flexibility.
 OUT_DATES = {out_dates!r}
 
-# How long to stay, in nights. We build return dates from each outbound date.
 MIN_NIGHTS = {int(min_nights)}
 MAX_NIGHTS = {int(max_nights)}
 
-# Hard limit: never return later than this (inclusive).
 MAX_RETURN_DATE = "{max_return}"
 
-# Passengers
-ADULTS = {int(adults)}                          # 16+ books as an adult
+ADULTS = {int(adults)}
 CHILDREN = {int(children)}
 
-# Connection rules
-MAX_STOPS = {int(max_stops)}                    # 0 (nonstop) or 1 connection only
-MIN_LAYOVER_HOURS = {float(min_layover)}        # need time to clear/recheck
-MAX_LAYOVER_HOURS = {float(max_layover)}        # don\'t want longer than this
+MAX_STOPS = {int(max_stops)}
+MIN_LAYOVER_HOURS = {float(min_layover)}
+MAX_LAYOVER_HOURS = {float(max_layover)}
 
-# Money
 CURRENCY = "{currency}"
-# Flag any round-trip at or below this TOTAL price for the whole party.
 PRICE_ALERT_TOTAL = {int(alert)}
 
-# Politeness: seconds to wait between Google Flights queries.
 REQUEST_DELAY_SECONDS = {float(delay)}
+
+# ─── Kiwi.com (Tequila) API ──────────────────────────────────
+# Get a free key at: https://tequila.kiwi.com/portal/login
+KIWI_API_KEY = {kiwi_key!r}
 '''
         CONFIG_PATH.write_text(new_cfg)
-        st.success("Settings saved! Run a new search to see the effect.")
+        st.success("Saved! Run a new search from the Search page.")

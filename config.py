@@ -35,3 +35,9 @@ PRICE_ALERT_TOTAL = 6400            # = 3200 pp round-trip; lower it to chase ha
 
 # Politeness: seconds to wait between Google Flights queries.
 REQUEST_DELAY_SECONDS = 1.5
+
+# ─── Kiwi.com (Tequila) API ──────────────────────────────────
+# Get a free key at: https://tequila.kiwi.com/portal/login
+# This is the ONLY way to find self-transfer flights (Blue Bird + easyJet etc).
+# Leave empty ("") to skip Kiwi search and use Google Flights only.
+KIWI_API_KEY = ""
