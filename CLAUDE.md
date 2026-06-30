@@ -7,9 +7,12 @@ catch a deal when one appears.
 ## If the user says "check flights" / "morning check" — follow MORNING_CHECK.md
 
 That runbook is the source of truth. Quick version:
-1. `python3 gen_searches.py` → today's valid Skyscanner URLs (QUICK mode).
-2. Drive the user's Chrome (claude-in-chrome): navigate to each URL, then run
-   `extract_options.js` in the tab to read detailed flight options.
+1. `python3 gen_searches.py` → today's valid URLs (QUICK mode), both Kiwi + Skyscanner.
+2. Drive the user's Chrome (claude-in-chrome). **Kiwi first** (one search = both
+   airports, 1-stop+no-overnight pre-applied): navigate to each KIWI url, wait ~9s,
+   run `extract_kiwi.js`. Then **Skyscanner** per airport as cross-check: navigate,
+   run `extract_options.js`, read "Flight option" blocks.
+   (Don't return the page URL from JS — the harness blocks query-string output.)
 3. Find the cheapest option meeting ALL constraints (below). Note price + times.
 4. Append a line to `watchlog.md`. Report best compliant option + trend vs prior days.
 
@@ -39,8 +42,9 @@ That runbook is the source of truth. Quick version:
 
 ## Files
 
-- `gen_searches.py` — emits valid Skyscanner URLs (--quick default, --full to sweep all).
-- `extract_options.js` — DOM extractor for detailed option times.
+- `gen_searches.py` — emits valid Kiwi + Skyscanner URLs (--quick default, --full).
+- `extract_kiwi.js` — DOM extractor for Kiwi result cards (ResultCardWrapper).
+- `extract_options.js` — DOM extractor for Skyscanner "Flight option" blocks.
 - `MORNING_CHECK.md` — the full runbook.
 - `watchlog.md` — day-by-day price history (the thing that catches a drop).
 - `flights.py` / `app.py` / `kiwi.py` / `config.py` — older Google-Flights + Kiwi

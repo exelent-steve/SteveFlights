@@ -36,6 +36,15 @@ COMMON = (f"adults={ADULTS}&adultsv2={ADULTS}&cabinclass=economy"
           f"&children=0&childrenv2=&infants=0&preferdirects=false"
           f"&outboundaltsenabled=false&inboundaltsenabled=false")
 
+# Kiwi.com uses city slugs. One search can cover BOTH UK airports at once,
+# and stopNumber=1~false applies "up to 1 stop, no overnight" via the URL.
+KIWI_BASE = "https://www.kiwi.com/en/search/results"
+KIWI_SLUGS = {
+    "TLV": "tel-aviv-israel",
+    "lpl": "liverpool-united-kingdom",
+    "man": "manchester-united-kingdom",
+}
+
 
 def valid_day(d: dt.date) -> bool:
     return d.weekday() not in BLOCKED_WEEKDAYS
@@ -71,6 +80,14 @@ def one_way_url(frm: str, to: str, d: dt.date) -> str:
     return f"{BASE}/{frm}/{to}/{yymmdd(d)}/?{COMMON}&rtn=0"
 
 
+def kiwi_url(out: dt.date, ret: dt.date) -> str:
+    """One Kiwi search covering both UK airports, 1-stop, no overnight, by price."""
+    origin = KIWI_SLUGS["TLV"]
+    dests = ",".join(KIWI_SLUGS[a] for a in AIRPORTS)
+    return (f"{KIWI_BASE}/{origin}/{dests}/{out:%Y-%m-%d}/{ret:%Y-%m-%d}/"
+            f"?adults={ADULTS}&stopNumber=1~false&sortBy=price")
+
+
 def quick_pairs(pairs, n_outbound=3, nights=(6, 7)):
     """A focused watch list: first few outbound days x 6-7 night stays.
 
@@ -103,7 +120,14 @@ def main():
     out_days = sorted({p[0] for p in pairs})
     ret_days = sorted({p[1] for p in pairs})
 
-    print("## Round-trip searches (open these, read 'Flight option' blocks)\n")
+    print("## Kiwi.com searches (BOTH airports per search, 1-stop+no-overnight)\n")
+    print("# Use extract_kiwi.js. Each covers LPL+MAN together, sorted by price.\n")
+    for out, ret, n in pairs:
+        print(f"# KIWI  {out:%a %d %b} -> {ret:%a %d %b}  ({n} nights)  [LPL+MAN]")
+        print(kiwi_url(out, ret))
+    print()
+
+    print("## Skyscanner round-trip searches (per airport, read 'Flight option' blocks)\n")
     for out, ret, n in pairs:
         for a in AIRPORTS:
             print(f"# {a.upper()}  {out:%a %d %b} -> {ret:%a %d %b}  ({n} nights)")

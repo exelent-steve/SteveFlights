@@ -19,20 +19,30 @@ it's on-demand. Needs Steve's Chrome open (the claude-in-chrome extension).
 
 1. Generate today's URLs:
    ```bash
-   python3 gen_searches.py            # QUICK: ~5 sweet-spot pairs x 2 airports
+   python3 gen_searches.py            # QUICK: ~5 sweet-spot date pairs
    python3 gen_searches.py --full     # FULL: every valid date pair (slow)
    ```
-2. In Chrome: create a tab, then for each round-trip URL — `navigate`, then run
-   `extract_options.js` via the javascript_tool.
-3. For each result, find the cheapest option that meets ALL constraints:
-   1 stop, no overnight layover (no "one day later" that implies an overnight
-   wait), layover 2–6h, sane arrival. Note its price + times.
-4. Append one line per run to `watchlog.md` (date, best COMPLIANT price + route +
-   times, and the absolute-cheapest for trend).
-5. Tell Steve: best compliant option today, and whether it beat previous days.
+2. **Kiwi.com first** (fastest — one search covers BOTH airports, with
+   1-stop+no-overnight already applied via `stopNumber=1~false&sortBy=price`):
+   for each KIWI URL — `navigate`, wait ~9s, run `extract_kiwi.js`. The top
+   cards are the cheapest compliant options. (Don't return the URL in JS output —
+   the harness blocks query-string data.)
+3. **Skyscanner as cross-check / deeper read** (per airport): for each round-trip
+   URL — `navigate`, wait ~6s, run `extract_options.js`, read "Flight option" blocks.
+4. From both sources, find the cheapest option meeting ALL constraints: 1 stop,
+   no overnight layover (watch "+1" / "one day later" with long duration), layover
+   2–6h, sane arrival. Note price + times. Cross-check that Kiwi & Skyscanner agree.
+5. Append one line per run to `watchlog.md` (date, best COMPLIANT price + route +
+   times + source, and the absolute-cheapest for trend).
+6. Tell Steve: best compliant option today, and whether it beat previous days.
    **Flag loudly if a compliant round-trip drops under ~₪1,800 pp** — that's a
    real deal worth booking fast (self-transfers via Kiwi/MyTrip "Select" give a
    connection guarantee).
+
+### Tip: keep it fast
+Kiwi covers both airports per search, so the ~5 Kiwi URLs are the core daily scan
+(~2 min). Only open the Skyscanner per-airport pages when Kiwi shows something
+promising, or every few days as a cross-check.
 
 ## Notes / gotchas
 
