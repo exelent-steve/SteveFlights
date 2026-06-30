@@ -5,7 +5,8 @@ no Fri/Sat travel, sane arrival. Prices = per person (pp) unless noted; ×2 for 
 
 | Date checked | Best COMPLIANT option (pp) | Route & times | Cheapest-overall (ignores rules) | Notes |
 |---|---|---|---|---|
-| 2026-06-30 | none < ~₪2,200 pp | All sub-₪2,500 pp options had a 2nd stop, overnight layover, or ~01:00 arrival | ₪1,065 pp (MAN→TLV 5 Aug ₪444 leg) but 14–23h overnight self-transfers | First check. Date-bar "bargains" all overnight ordeals. ₪1,600 pp target not available. Verdict: monitor, don't book. |
+| 2026-06-30 | none < ~₪2,200 pp | All sub-₪2,500 pp options had a 2nd stop, overnight layover, or ~01:00 arrival | ₪1,065 pp (MAN→TLV 5 Aug ₪444 leg) but 14–23h overnight self-transfers | First check (Skyscanner). Date-bar "bargains" all overnight ordeals. ₪1,600 pp target not available. Verdict: monitor, don't book. |
+| 2026-06-30 (Kiwi run) | **₪2,767 pp** (₪5,534 total) | MAN↔MAN, out 28 Jul 12:30→19:10 (via Düsseldorf, same day), back 3 Aug 07:00→16:00 (via Munich, same day). 1 stop each, daytime, likely PROTECTED (no self-transfer tag). | ₪1,874 pp (₪3,747 total) 28 Jul→4 Aug, but DOUBLE overnight (Athens 15h55 out + Naples 23h10 back) | First full Kiwi run (both airports/search). Cheapest no-overnight ~₪4,561 (28→4 Aug) but 01:05 arrival + small-hours Bucharest. Kiwi+Skyscanner agree. No movement vs first check. |
 
 ## Reference snapshot (2026-06-30, for trend comparison)
 
